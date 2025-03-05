@@ -5,20 +5,32 @@ const cors = require('cors');
 const multer = require('multer');
 const fs = require('fs').promises;
 const axios = require('axios');
-const FormData = require('form-data');
+const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
-// Debug: Log if the API key is loading
+// Debug: Ensure API keys are loaded
 if (!ASSEMBLYAI_API_KEY) {
     console.error("⚠️ Error: ASSEMBLYAI_API_KEY is missing! Check your .env file.");
-    process.exit(1); // Stop server if API key is missing
+    process.exit(1);
 } else {
     console.log("✅ ASSEMBLYAI_API_KEY loaded successfully.");
 }
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.error("⚠️ Error: Supabase credentials are missing! Check your .env file.");
+    process.exit(1);
+} else {
+    console.log("✅ Supabase credentials loaded successfully.");
+}
+
+// Initialize Supabase client
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Middleware
 app.use(cors());
@@ -34,7 +46,7 @@ const upload = multer({
     })
 });
 
-// AssemblyAI API Route
+// AssemblyAI API Route for Transcription
 app.post('/transcribe', upload.single('audio'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
@@ -44,7 +56,7 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
         const audioPath = req.file.path;
         console.log(`📂 Received audio file: ${audioPath}`);
 
-        // Upload the file to AssemblyAI
+        // Upload file to AssemblyAI
         const fileBuffer = await fs.readFile(audioPath);
         const uploadResponse = await axios.post('https://api.assemblyai.com/v2/upload', fileBuffer, {
             headers: {
@@ -69,7 +81,7 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
         // Poll for transcription result
         let transcriptResult;
         while (true) {
-            await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds between checks
+            await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
             const pollingResponse = await axios.get(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
                 headers: { 'Authorization': ASSEMBLYAI_API_KEY }
             });
@@ -83,6 +95,17 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
         }
 
         console.log('✅ Transcription completed:', transcriptResult);
+
+        // Save transcription to Supabase
+        const { error } = await supabase
+            .from('transcriptions')
+            .insert([{ transcription: transcriptResult, created_at: new Date() }]);
+
+        if (error) {
+            throw new Error(`Supabase Insert Error: ${error.message}`);
+        }
+
+        console.log('📥 Transcription saved to Supabase.');
 
         // Delete file after processing
         await fs.unlink(audioPath);
