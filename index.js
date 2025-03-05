@@ -115,7 +115,7 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
     } catch (error) {
         console.error('❌ Error transcribing audio:', error.response?.data || error.message);
         res.status(500).json({ error: error.response?.data || 'Failed to transcribe audio' });
-    }
+    }  
 });
 
 // Start the server
