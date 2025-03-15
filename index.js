@@ -3,10 +3,8 @@ require('dotenv').config(); // Load environment variables at the top
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const fs = require('fs').promises;
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
-const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -15,18 +13,9 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
 // Debug: Ensure API keys are loaded
-if (!ASSEMBLYAI_API_KEY) {
-    console.error("⚠️ Error: ASSEMBLYAI_API_KEY is missing! Check your .env file.");
+if (!ASSEMBLYAI_API_KEY || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.error("⚠️ Error: Missing required API keys or Supabase credentials. Check your .env file.");
     process.exit(1);
-} else {
-    console.log("✅ ASSEMBLYAI_API_KEY loaded successfully.");
-}
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.error("⚠️ Error: Supabase credentials are missing! Check your .env file.");
-    process.exit(1);
-} else {
-    console.log("✅ Supabase credentials loaded successfully.");
 }
 
 // Initialize Supabase client
@@ -36,15 +25,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 app.use(cors());
 app.use(express.json());
 
-// Setup Multer for file uploads
-const upload = multer({
-    storage: multer.diskStorage({
-        destination: 'uploads/',
-        filename: (req, file, cb) => {
-            cb(null, `${Date.now()}-${file.originalname}`);
-        }
-    })
-});
+// Setup Multer for memory storage (no local storage)
+const upload = multer({ storage: multer.memoryStorage() });
 
 // AssemblyAI API Route for Transcription
 app.post('/transcribe', upload.single('audio'), async (req, res) => {
@@ -53,12 +35,10 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
     }
 
     try {
-        const audioPath = req.file.path;
-        console.log(`📂 Received audio file: ${audioPath}`);
+        console.log(`📂 Received audio file: ${req.file.originalname}`);
 
-        // Upload file to AssemblyAI
-        const fileBuffer = await fs.readFile(audioPath);
-        const uploadResponse = await axios.post('https://api.assemblyai.com/v2/upload', fileBuffer, {
+        // Upload file directly to AssemblyAI
+        const uploadResponse = await axios.post('https://api.assemblyai.com/v2/upload', req.file.buffer, {
             headers: {
                 'Authorization': ASSEMBLYAI_API_KEY,
                 'Content-Type': 'application/octet-stream'
@@ -106,23 +86,20 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
         }
 
         console.log('📥 Transcription saved to Supabase.');
-
-        // Delete file after processing
-        await fs.unlink(audioPath);
-
         res.json({ transcription: transcriptResult });
 
     } catch (error) {
         console.error('❌ Error transcribing audio:', error.response?.data || error.message);
         res.status(500).json({ error: error.response?.data || 'Failed to transcribe audio' });
-    }  
+    }
 });
 
 // API route endpoints
 app.get('/', (req, res) => {
     res.send('<h1>Speech-to-Text Transcription API</h1><p>Welcome to the Speech-to-Text Transcription Backend.</p>');
 });
-// Fetching previous transcriptions
+
+// Fetch previous transcriptions
 app.get('/transcriptions', async (req, res) => {
     try {
         const { data, error } = await supabase.from('transcriptions').select('*').order('created_at', { ascending: false });
@@ -161,7 +138,7 @@ app.delete('/transcriptions/:id', async (req, res) => {
     }
 });
 
-//Delete All Transcriptions
+// Delete All Transcriptions
 app.delete('/transcriptions', async (req, res) => {
     try {
         const { error } = await supabase.from('transcriptions').delete().neq('id', 0);
