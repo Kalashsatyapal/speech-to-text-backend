@@ -118,6 +118,67 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
     }  
 });
 
+// API route endpoints
+app.get('/', (req, res) => {
+    res.send('<h1>Speech-to-Text Transcription API</h1><p>Welcome to the Speech-to-Text Transcription Backend.</p>');
+});
+// Fetching previous transcriptions
+app.get('/transcriptions', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('transcriptions').select('*').order('created_at', { ascending: false });
+
+        if (error) {
+            throw new Error(`Supabase Fetch Error: ${error.message}`);
+        }
+
+        res.json(data);
+    } catch (error) {
+        console.error('❌ Error fetching transcriptions:', error);
+        res.status(500).json({ error: 'Failed to fetch transcriptions' });
+    }
+});
+
+// Delete a Single Transcription
+app.delete('/transcriptions/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const { error } = await supabase
+            .from('transcriptions')
+            .delete()
+            .match({ id });
+
+        if (error) {
+            throw new Error(`Supabase Delete Error: ${error.message}`);
+        }
+
+        console.log(`🗑️ Deleted transcription with ID: ${id}`);
+        res.json({ message: 'Transcription deleted successfully' });
+
+    } catch (error) {
+        console.error('❌ Error deleting transcription:', error);
+        res.status(500).json({ error: 'Failed to delete transcription' });
+    }
+});
+
+//Delete All Transcriptions
+app.delete('/transcriptions', async (req, res) => {
+    try {
+        const { error } = await supabase.from('transcriptions').delete().neq('id', 0);
+
+        if (error) {
+            throw new Error(`Supabase Delete All Error: ${error.message}`);
+        }
+
+        console.log('🗑️ Cleared all transcriptions.');
+        res.json({ message: 'All transcriptions deleted successfully' });
+
+    } catch (error) {
+        console.error('❌ Error clearing transcriptions:', error);
+        res.status(500).json({ error: 'Failed to clear all transcriptions' });
+    }
+});
+
 // Start the server
 app.listen(PORT, () => {
     console.log(`🚀 Server is running on http://localhost:${PORT}`);
